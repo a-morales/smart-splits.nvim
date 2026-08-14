@@ -420,12 +420,76 @@ smart_splits.apply_to_config(config, {
     move = 'CTRL', -- modifier to use for pane movement, e.g. CTRL+h to move left
     resize = 'META', -- modifier to use for pane resize, e.g. META+h to resize to the left
   },
+  -- what to do when moving and there is no Wezterm pane in that direction;
+  -- see "Wezterm at_edge behavior" below. Can also be 'wrap', 'split',
+  -- or a function.
+  at_edge = 'stop',
   -- log level to use: info, warn, error
   log_level = 'info',
 })
 ```
 
-Otherwise, add the following snippet to your `~/.config/wezterm/wezterm.lua`:
+#### Wezterm `at_edge` behavior
+
+`at_edge` controls what happens when you move toward a direction in which Wezterm has no
+pane. It takes the same values as the Neovim-side `at_edge` option:
+
+| Value | Behavior |
+| --- | --- |
+| `'stop'` (default) | Pass the keystroke through to the program running in the pane |
+| `'wrap'` | Activate the farthest pane in the opposite direction, staying in the same row/column; falls back to `'stop'` when no other pane shares that row/column |
+| `'split'` | Split the current pane in that direction |
+| `function` | Call your function with a context table (see below) |
+
+> [!NOTE]
+> Unlike the Neovim plugin, `'stop'` passes the keystroke through to the program rather
+> than swallowing it, since Wezterm is not the program you are typing into. This
+> generalizes the previous behavior, where keys were passed through only in a
+> single-pane tab. A tab with a single pane is at the edge in every direction, so
+> `at_edge` applies there too. `'wrap'` therefore also falls back to passing the key
+> through whenever there is no pane to wrap to, rather than swallowing the keystroke.
+
+The function form receives a single context table:
+
+```lua
+smart_splits.apply_to_config(config, {
+  at_edge = function(ctx)
+    -- ctx.window    -- the Wezterm GUI window
+    -- ctx.pane      -- the active pane, which is at the edge
+    -- ctx.direction -- 'Left' | 'Down' | 'Up' | 'Right', in Wezterm's casing
+    -- ctx.key       -- the key that was pressed
+    -- ctx.split()   -- split the current pane in ctx.direction
+    -- ctx.wrap()    -- activate the farthest pane in the opposite direction,
+    --               -- or send_key() if there is none
+    -- ctx.send_key() -- pass the keystroke through to the program in the pane
+
+    -- for example, move between tabs at the left and right edges:
+    if ctx.direction == 'Left' then
+      ctx.window:perform_action(wezterm.action.ActivateTabRelative(-1), ctx.pane)
+    elseif ctx.direction == 'Right' then
+      ctx.window:perform_action(wezterm.action.ActivateTabRelative(1), ctx.pane)
+    else
+      ctx.send_key()
+    end
+  end,
+})
+```
+
+Note that `ctx.direction` uses Wezterm's capitalization (`'Left'`), not the Neovim
+plugin's (`'left'`), so that it can be passed directly to Wezterm APIs such as
+`ctx.window:perform_action({ ActivatePaneDirection = ctx.direction }, ctx.pane)`.
+
+> [!IMPORTANT]
+> This option applies only to panes that are **not** running Neovim. When the focused
+> pane is Neovim, the keystroke is passed through to Neovim, which applies its own
+> `at_edge` from `require('smart-splits').setup({ at_edge = ... })`. The two options are
+> peers, not layers — for consistent behavior at the edges, configure both.
+
+`at_edge` applies to movement only; resizing is unaffected, matching the Neovim plugin.
+
+Otherwise, add the following snippet to your `~/.config/wezterm/wezterm.lua`. Note that
+the snippet below is a minimal implementation and does not support `at_edge`, which
+requires the plugin loader shown above:
 
 ```lua
 local w = require('wezterm')
